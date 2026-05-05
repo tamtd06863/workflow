@@ -22,6 +22,11 @@ export class AuthController {
     return this.authService.googleLogin(dto);
   }
 
+  @Post('register-customer')
+  registerCustomer(@Body() dto: GoogleAuthDto) {
+    return this.authService.registerCustomer(dto.access_token);
+  }
+
   @Post('complete-google-onboarding')
   completeGoogleOnboarding(@Body() dto: CompleteGoogleOnboardingDto) {
     return this.authService.completeGoogleOnboarding(dto);

@@ -1,0 +1,238 @@
+import {
+  WebSocketGateway,
+  WebSocketServer,
+  SubscribeMessage,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  MessageBody,
+  ConnectedSocket,
+} from '@nestjs/websockets';
+import { Server, Socket } from 'socket.io';
+import { SupabaseService } from '../supabase/supabase.service.js';
+import { ChatService } from '../chat/chat.service.js';
+import { haversineDistance } from '../common/utils/haversine.util.js';
+import {
+  WS_EVENTS,
+  requestRoom,
+  trackingRoom,
+  chatRoom,
+  tenantPoolRoom,
+  staffRoom,
+  customerRoom,
+} from './gateway.types.js';
+
+interface SocketUser {
+  id: string;
+  email: string;
+  role: string;
+  tenant_id: string | null;
+}
+
+@WebSocketGateway({
+  namespace: '/ws',
+  cors: { origin: '*' },
+})
+export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  @WebSocketServer()
+  server: Server;
+
+  constructor(
+    private supabase: SupabaseService,
+    private chat: ChatService,
+  ) {}
+
+  async handleConnection(client: Socket) {
+    try {
+      const token = client.handshake.auth?.token as string | undefined;
+      if (!token) {
+        client.emit(WS_EVENTS.ERROR, { code: 'UNAUTHORIZED', message: 'Token required' });
+        client.disconnect();
+        return;
+      }
+
+      const { data: { user }, error } = await this.supabase.db.auth.getUser(token);
+      if (error || !user) {
+        client.emit(WS_EVENTS.ERROR, { code: 'UNAUTHORIZED', message: 'Invalid token' });
+        client.disconnect();
+        return;
+      }
+
+      const { data: dbUser } = await this.supabase.db
+        .from('users')
+        .select('role, is_active')
+        .eq('id', user.id)
+        .single();
+
+      if (!dbUser?.is_active) {
+        client.disconnect();
+        return;
+      }
+
+      let tenantId: string | null = null;
+      let role = dbUser.role;
+
+      if (role !== 'superadmin' && role !== 'customer') {
+        const tenantHeader = client.handshake.headers['x-tenant-id'] as string | undefined;
+        if (tenantHeader) {
+          const { data: membership } = await this.supabase.db
+            .from('user_tenants')
+            .select('role')
+            .eq('user_id', user.id)
+            .eq('tenant_id', tenantHeader)
+            .eq('is_active', true)
+            .single();
+
+          if (membership) {
+            tenantId = tenantHeader;
+            role = (membership as any).role;
+          }
+        }
+      }
+
+      const socketUser: SocketUser = { id: user.id, email: user.email!, role, tenant_id: tenantId };
+      client.data.user = socketUser;
+
+      // Auto-join rooms based on role
+      if (role === 'customer') {
+        client.join(customerRoom(user.id));
+      } else if (role === 'staff') {
+        client.join(staffRoom(user.id));
+      } else if (['business_owner', 'operator'].includes(role) && tenantId) {
+        client.join(tenantPoolRoom(tenantId));
+      }
+    } catch {
+      client.disconnect();
+    }
+  }
+
+  handleDisconnect(_client: Socket) {
+    // Cleanup handled by socket.io automatically
+  }
+
+  @SubscribeMessage(WS_EVENTS.PING)
+  handlePing(@ConnectedSocket() client: Socket) {
+    client.emit(WS_EVENTS.PONG);
+  }
+
+  @SubscribeMessage(WS_EVENTS.JOIN_REQUEST)
+  async handleJoinRequest(
+    @MessageBody() data: { requestId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const user: SocketUser = client.data.user;
+    if (!user) return;
+
+    client.join(requestRoom(data.requestId));
+    client.join(trackingRoom(data.requestId));
+    client.join(chatRoom(data.requestId, 'customer_operator'));
+    client.join(chatRoom(data.requestId, 'customer_staff'));
+  }
+
+  @SubscribeMessage(WS_EVENTS.LOCATION_UPDATE)
+  async handleLocationUpdate(
+    @MessageBody() data: { requestId: string; lat: number; lng: number; heading?: number; speed?: number },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const user: SocketUser = client.data.user;
+    if (!user || user.role !== 'staff') return;
+
+    // Persist location
+    if (user.tenant_id) {
+      void this.supabase.db.from('staff_locations').insert({
+        user_id: user.id,
+        tenant_id: user.tenant_id,
+        lat: data.lat,
+        lng: data.lng,
+        heading: data.heading,
+        speed_mps: data.speed,
+      });
+    }
+
+    // Get customer location to compute ETA
+    let etaSeconds: number | undefined;
+    const { data: request } = await this.supabase.db
+      .from('service_requests')
+      .select('location_lat, location_lng')
+      .eq('id', data.requestId)
+      .single();
+
+    if (request) {
+      const dist = haversineDistance(data.lat, data.lng, request.location_lat, request.location_lng);
+      etaSeconds = Math.round(dist / 10);
+    }
+
+    // Broadcast to customer tracking room
+    this.server.to(trackingRoom(data.requestId)).emit(WS_EVENTS.TRACKING_LOCATION, {
+      requestId: data.requestId,
+      lat: data.lat,
+      lng: data.lng,
+      heading: data.heading,
+      etaSeconds,
+    });
+  }
+
+  @SubscribeMessage(WS_EVENTS.CHAT_SEND)
+  async handleChatSend(
+    @MessageBody() data: {
+      requestId: string;
+      channel: 'customer_operator' | 'customer_staff';
+      content?: string;
+      mediaUrls?: string[];
+    },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const user: SocketUser = client.data.user;
+    if (!user) return;
+
+    try {
+      const message = await this.chat.sendMessage(
+        data.requestId,
+        data.channel,
+        data.content,
+        data.mediaUrls,
+        user,
+      );
+
+      this.server.to(chatRoom(data.requestId, data.channel)).emit(WS_EVENTS.CHAT_MESSAGE, {
+        requestId: data.requestId,
+        channel: data.channel,
+        message,
+      });
+    } catch (err: any) {
+      client.emit(WS_EVENTS.ERROR, { code: 'CHAT_ERROR', message: err.message });
+    }
+  }
+
+  // Public methods for other services to broadcast events
+  emitRequestStatusChanged(requestId: string, status: string) {
+    this.server.to(requestRoom(requestId)).emit(WS_EVENTS.REQUEST_STATUS_CHANGED, {
+      requestId,
+      status,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  emitStaffAssigned(requestId: string, staff: Record<string, any>) {
+    this.server.to(requestRoom(requestId)).emit(WS_EVENTS.REQUEST_STAFF_ASSIGNED, { requestId, staff });
+  }
+
+  emitRequote(requestId: string, requotePrice: number, reason: string) {
+    this.server.to(requestRoom(requestId)).emit(WS_EVENTS.REQUEST_REQUOTE, { requestId, requotePrice, reason });
+  }
+
+  emitPoolNewRequest(tenantId: string, payload: Record<string, any>) {
+    this.server.to(tenantPoolRoom(tenantId)).emit(WS_EVENTS.POOL_NEW_REQUEST, payload);
+  }
+
+  emitJobAssigned(staffUserId: string, payload: Record<string, any>) {
+    this.server.to(staffRoom(staffUserId)).emit(WS_EVENTS.JOB_ASSIGNED, payload);
+  }
+
+  emitJobCancelled(staffUserId: string, requestId: string, reason?: string) {
+    this.server.to(staffRoom(staffUserId)).emit(WS_EVENTS.JOB_CANCELLED, { requestId, reason });
+  }
+
+  emitStaffPoolUpdated(tenantId: string, requestId: string) {
+    this.server.to(tenantPoolRoom(tenantId)).emit(WS_EVENTS.STAFF_POOL_UPDATED, { requestId, tenantId });
+  }
+}

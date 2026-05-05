@@ -32,6 +32,14 @@ export default function BOLayout() {
         <NativeTabs.Trigger.Label>Tasks</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
 
+      <NativeTabs.Trigger name="requests" disableTransparentOnScrollEdge>
+        <NativeTabs.Trigger.Icon
+          sf={{ default: 'bell.badge', selected: 'bell.badge.fill' }}
+          md="inbox"
+        />
+        <NativeTabs.Trigger.Label>Yêu cầu</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+
       <NativeTabs.Trigger name="audit-log" disableTransparentOnScrollEdge>
         <NativeTabs.Trigger.Icon
           sf={{ default: 'clock', selected: 'clock.fill' }}

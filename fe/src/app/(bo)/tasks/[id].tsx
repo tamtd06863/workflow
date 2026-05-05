@@ -214,6 +214,13 @@ export default function BOTaskDetailScreen() {
                 </View>
                 <InfoRow label="Time" value={task.checkout.checked_out_at ? new Date(task.checkout.checked_out_at).toLocaleString('vi-VN') : undefined} />
                 <InfoRow label="Notes" value={task.checkout.notes} />
+                {task.checkout.collected_amount != null && (
+                  <View className="bg-success/10 rounded-xl px-3 py-2 mt-1">
+                    <Text className="text-xs font-bold text-success">
+                      💰 Đã thu: {Number(task.checkout.collected_amount).toLocaleString('vi-VN')}₫
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
           </Section>

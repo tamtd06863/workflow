@@ -9,7 +9,8 @@ interface PushPayload {
   title: string;
   body: string;
   task_id?: string;
-  tenant_id: string;
+  request_id?: string;
+  tenant_id?: string | null;
 }
 
 @Injectable()

@@ -3,73 +3,71 @@ import { FlatList, RefreshControl } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { View, Text, Pressable } from '@/tw';
-import { meApi } from '@/lib/api/me';
-import { StatusBadge } from '@/components/ui/StatusBadge';
+import { technicianApi } from '@/lib/api/technician';
 import { LoadingScreen } from '@/components/ui/LoadingScreen';
 import { ErrorView } from '@/components/ui/ErrorView';
-import type { Task } from '@/types/api';
+import type { ServiceRequestSummary } from '@/lib/api/requests';
+
+const STATUS_LABELS: Record<string, string> = {
+  completed: 'Hoàn thành',
+  completed_late: 'Hoàn thành (trễ)',
+  cancelled: 'Đã hủy',
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  completed: '#10B981',
+  completed_late: '#F59E0B',
+  cancelled: '#9CA3AF',
+};
 
 export default function WorkHistoryScreen() {
   const [page, setPage] = useState(1);
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
-    queryKey: ['me-history', page],
-    queryFn: () => meApi.history(page),
+    queryKey: ['technician-history', page],
+    queryFn: () => technicianApi.getHistory({ page, limit: 20 }),
   });
 
-  const tasks = data?.data ?? [];
+  const jobs: ServiceRequestSummary[] = data?.data ?? [];
   const meta = data?.meta;
 
   if (isLoading) return <LoadingScreen />;
   if (isError) return <ErrorView onRetry={refetch} />;
 
-  function renderTask({ item: task }: { item: Task }) {
-    const duration =
-      task.checkin?.checked_in_at && task.checkout?.checked_out_at
-        ? (() => {
-            const diff =
-              new Date(task.checkout.checked_out_at).getTime() -
-              new Date(task.checkin.checked_in_at).getTime();
-            const hours = Math.floor(diff / 3_600_000);
-            const minutes = Math.floor((diff % 3_600_000) / 60_000);
-            return `${hours}h ${minutes}m`;
-          })()
-        : null;
+  function renderJob({ item: job }: { item: ServiceRequestSummary }) {
+    const statusColor = STATUS_COLORS[job.status] ?? '#9CA3AF';
+    const statusLabel = STATUS_LABELS[job.status] ?? job.status;
 
     return (
       <Pressable
-        onPress={() => router.push({ pathname: '/(staff)/tasks/[id]', params: { id: task.id } })}
+        onPress={() => router.push({ pathname: '/(staff)/jobs/[id]', params: { id: job.id } })}
         className="bg-surface-container-lowest rounded-xl p-5 mb-3 mx-4 overflow-hidden active:opacity-70"
       >
-        <View className="absolute left-0 top-0 bottom-0 w-1 bg-success" />
-        <View className="flex-row items-start justify-between mb-3">
-          <Text className="text-base font-bold text-on-surface flex-1 mr-3" numberOfLines={1}>
-            {task.title}
-          </Text>
-          <StatusBadge status={task.status} />
+        <View className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: statusColor }} />
+        <View className="flex-row items-start justify-between mb-2">
+          <View className="flex-1 mr-3 gap-0.5">
+            <Text className="text-xs font-bold" style={{ color: statusColor }}>{job.category?.name ?? 'Dịch vụ'}</Text>
+            <Text className="text-sm font-semibold text-on-surface" numberOfLines={2}>{job.description}</Text>
+          </View>
+          <View style={{ backgroundColor: statusColor + '20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: statusColor }}>{statusLabel}</Text>
+          </View>
         </View>
 
-        <View className="gap-1.5">
-          {task.location_name && (
-            <Text className="text-xs text-on-surface-variant" numberOfLines={1}>📍 {task.location_name}</Text>
+        <View className="gap-1 mt-1">
+          {job.customer && (
+            <Text className="text-xs text-on-surface-variant">👤 {job.customer.full_name}</Text>
           )}
-          {task.checkin?.checked_in_at && (
+          {job.completed_at && (
             <Text className="text-xs text-on-surface-variant">
-              Check-in: {new Date(task.checkin.checked_in_at).toLocaleString('vi-VN')}
+              ✅ {new Date(job.completed_at).toLocaleString('vi-VN')}
             </Text>
           )}
-          {task.checkout?.checked_out_at && (
-            <Text className="text-xs text-on-surface-variant">
-              Check-out: {new Date(task.checkout.checked_out_at).toLocaleString('vi-VN')}
-            </Text>
-          )}
-          {duration && (
-            <View className="self-start mt-1 px-2.5 py-0.5 rounded-full bg-success-container">
-              <Text className="text-[10px] font-bold text-on-success-container">⏱ {duration}</Text>
+          {job.collected_amount != null && (
+            <View className="flex-row items-center justify-between mt-1 pt-2 border-t border-outline/20">
+              <Text className="text-xs text-on-surface-variant">Đã thu</Text>
+              <Text className="text-sm font-bold text-success">💰 {job.collected_amount.toLocaleString('vi-VN')}₫</Text>
             </View>
-          )}
-          {task.checkin?.photo_url && (
-            <Text className="text-xs text-primary mt-1">📷 Photo attached</Text>
           )}
         </View>
       </Pressable>
@@ -78,27 +76,22 @@ export default function WorkHistoryScreen() {
 
   return (
     <View className="flex-1 bg-surface-container-low">
-      {/* Glass Header */}
       <View className="glass-effect px-5 pt-14 pb-4">
-        <View className="flex-row items-center gap-3">
-          <Pressable onPress={() => router.back()} className="active:opacity-60">
-            <Text className="text-primary font-semibold">← Back</Text>
-          </Pressable>
-          <Text className="text-xl font-extrabold text-on-surface tracking-tight flex-1">Work History</Text>
-        </View>
+        <Text className="text-xl font-extrabold text-on-surface tracking-tight">Lịch sử công việc</Text>
       </View>
 
       <FlatList
-        data={tasks}
+        data={jobs}
         keyExtractor={(item) => item.id}
-        renderItem={renderTask}
+        renderItem={renderJob}
         contentContainerStyle={{ paddingTop: 16, paddingBottom: 32 }}
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={() => { setPage(1); refetch(); }} />
         }
         ListEmptyComponent={
-          <View className="py-16 items-center">
-            <Text className="text-on-surface-variant text-sm">No completed tasks yet</Text>
+          <View className="py-16 items-center gap-2">
+            <Text className="text-4xl">📋</Text>
+            <Text className="text-on-surface-variant text-sm">Chưa có công việc nào hoàn thành</Text>
           </View>
         }
         ListFooterComponent={
@@ -107,7 +100,7 @@ export default function WorkHistoryScreen() {
               onPress={() => setPage((p) => p + 1)}
               className="mx-4 mb-4 py-3 rounded-xl bg-surface-container-high items-center active:opacity-60"
             >
-              <Text className="text-primary font-semibold text-sm">Load more</Text>
+              <Text className="text-primary font-semibold text-sm">Xem thêm</Text>
             </Pressable>
           ) : null
         }

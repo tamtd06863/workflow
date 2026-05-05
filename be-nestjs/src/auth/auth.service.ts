@@ -51,6 +51,14 @@ export class AuthService {
       .update({ last_login_at: new Date().toISOString() })
       .eq('id', user.id);
 
+    // Customers skip tenant onboarding
+    if (user.role === 'customer') {
+      return {
+        access_token: dto.access_token,
+        user: { id: user.id, email: user.email, full_name: user.full_name, avatar_url: user.avatar_url, role: 'customer' },
+      };
+    }
+
     const { data: memberships } = await this.supabase.db
       .from('user_tenants')
       .select('role, tenant_id, tenants!inner(id, name, slug, status)')
@@ -81,6 +89,48 @@ export class AuthService {
     }
 
     return { ...tokens, user: userInfo, tenants, requires_tenant_selection: true };
+  }
+
+  async registerCustomer(accessToken: string) {
+    const { data: { user: googleUser }, error } = await this.supabase.db.auth.getUser(accessToken);
+
+    if (error || !googleUser) {
+      throw new UnauthorizedException({ error: { code: 'INVALID_TOKEN', message: 'Token không hợp lệ' } });
+    }
+
+    const fullName = googleUser.user_metadata?.full_name
+      ?? googleUser.user_metadata?.name
+      ?? googleUser.email!;
+
+    const { data: existingUser } = await this.supabase.db
+      .from('users')
+      .select('id, role')
+      .eq('id', googleUser.id)
+      .single();
+
+    await this.supabase.db
+      .from('users')
+      .upsert(
+        {
+          id: googleUser.id,
+          email: googleUser.email!,
+          full_name: fullName,
+          role: 'customer',
+          avatar_url: googleUser.user_metadata?.avatar_url ?? null,
+          last_login_at: new Date().toISOString(),
+        },
+        { onConflict: 'id' },
+      );
+
+    return {
+      access_token: accessToken,
+      user: {
+        id: googleUser.id,
+        email: googleUser.email,
+        full_name: fullName,
+        role: 'customer',
+      },
+    };
   }
 
   async completeGoogleOnboarding(dto: CompleteGoogleOnboardingDto) {

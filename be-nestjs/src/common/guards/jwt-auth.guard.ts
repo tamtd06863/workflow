@@ -27,6 +27,11 @@ export class JwtAuthGuard implements CanActivate {
       return true;
     }
 
+    if (dbUser?.role === 'customer') {
+      req.user = { id: user.id, email: user.email, role: 'customer', tenant_id: null };
+      return true;
+    }
+
     const tenantId: string | null = req.headers['x-tenant-id'] ?? null;
     if (tenantId) {
       const { data: membership } = await this.supabase.db

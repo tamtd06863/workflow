@@ -64,6 +64,7 @@ export default function StaffTaskDetailScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState(false);
+  const [collectedAmount, setCollectedAmount] = useState('');
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ['task', id],
@@ -103,13 +104,18 @@ export default function StaffTaskDetailScreen() {
   const checkoutMutation = useMutation({
     mutationFn: async () => {
       const form = await buildCheckinForm(notes, photoUri);
+      if (collectedAmount.trim()) {
+        // @ts-expect-error
+        form.append('collected_amount', collectedAmount.trim());
+      }
       return tasksApi.checkout(id, form);
     },
     onSuccess: () => {
       invalidate();
       setNotes('');
       setPhotoUri(null);
-      Alert.alert('Success', 'Checked out successfully! Task completed.');
+      setCollectedAmount('');
+      Alert.alert('Hoàn thành', 'Đã check-out thành công! Công việc hoàn thành.');
     },
     onError: (e) => {
       const msg =
@@ -239,7 +245,7 @@ export default function StaffTaskDetailScreen() {
           <Section title={canCheckin ? 'Check In' : 'Check Out'}>
             <TextInput
               className="bg-surface-container-high rounded-xl px-4 py-3 text-base text-on-surface mb-3"
-              placeholder="Add notes (optional)"
+              placeholder="Ghi chú (tùy chọn)"
               placeholderTextColor="#737685"
               value={notes}
               onChangeText={setNotes}
@@ -247,6 +253,16 @@ export default function StaffTaskDetailScreen() {
               numberOfLines={2}
               textAlignVertical="top"
             />
+            {canCheckout && (
+              <TextInput
+                className="bg-surface-container-high rounded-xl px-4 py-3 text-base text-on-surface mb-3"
+                placeholder="Số tiền thu được (VNĐ)"
+                placeholderTextColor="#737685"
+                value={collectedAmount}
+                onChangeText={setCollectedAmount}
+                keyboardType="numeric"
+              />
+            )}
 
             <View className="flex-row gap-2 mb-3">
               <Pressable onPress={takePhoto} className="flex-1 py-2.5 rounded-xl bg-surface-container-high items-center active:opacity-70">

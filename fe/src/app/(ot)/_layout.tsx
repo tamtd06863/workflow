@@ -39,6 +39,14 @@ export default function OTLayout() {
         />
         <NativeTabs.Trigger.Label>Assign</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="requests" disableTransparentOnScrollEdge>
+        <NativeTabs.Trigger.Icon
+          sf={{ default: 'bell.badge', selected: 'bell.badge.fill' }}
+          md="inbox"
+        />
+        <NativeTabs.Trigger.Label>Yêu cầu</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 }
