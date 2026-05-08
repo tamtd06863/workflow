@@ -1,0 +1,38 @@
+import { useRef, useEffect, useState } from 'react';
+import { Redirect } from 'expo-router';
+import { useAuth } from '@/context/auth';
+import { LoadingScreen } from '@/components/ui/LoadingScreen';
+import { staffApi } from '@/lib/api/staff';
+
+export default function Index() {
+  const { token, user, isLoading, pendingSelection, needsOnboarding } = useAuth();
+  const [inviteCheckDone, setInviteCheckDone] = useState(false);
+  const [hasPendingInvites, setHasPendingInvites] = useState(false);
+  const checkedTokenRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!token || !user) return;
+    if (checkedTokenRef.current === token) return;
+    checkedTokenRef.current = token;
+    setInviteCheckDone(false);
+    staffApi.myInvitations()
+      .then(res => {
+        const pending = res.data.data.filter(i => i.status === 'pending');
+        setHasPendingInvites(pending.length > 0);
+      })
+      .catch(() => { setHasPendingInvites(false); })
+      .finally(() => setInviteCheckDone(true));
+  }, [token, user]);
+
+  if (isLoading) return <LoadingScreen />;
+  if (needsOnboarding) return <Redirect href="/(auth)/setup-tenant" />;
+  if (pendingSelection) return <Redirect href="/(auth)/select-tenant" />;
+  if (!token || !user) return <Redirect href="/(auth)/login" />;
+  if (!inviteCheckDone) return <LoadingScreen />;
+  if (hasPendingInvites) return <Redirect href="/(auth)/invitations" />;
+
+  if (user.role === 'staff') return <Redirect href="/(staff)" />;
+  // Non-staff role or role is null — not allowed in this app
+  if ((user as any).tenants?.length > 0) return <Redirect href="/(auth)/select-tenant" />;
+  return <Redirect href="/(auth)/login" />;
+}

@@ -20,7 +20,11 @@
       "Bash(supabase db *)",
       "Bash(npx create-expo-app@latest fe-customer --template blank-typescript)",
       "Bash(npx expo *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(robocopy \"C:\\\\Users\\\\Bo\\\\repos\\\\be-task-assignment\\\\fe\" \"C:\\\\Users\\\\Bo\\\\repos\\\\be-task-assignment\\\\fe-staff\" /E /XD node_modules .expo android e2e test-results /XF package-lock.json)",
+      "Bash(robocopy \"C:\\\\Users\\\\Bo\\\\repos\\\\be-task-assignment\\\\fe\" \"C:\\\\Users\\\\Bo\\\\repos\\\\be-task-assignment\\\\fe-staff\" /E /XD \"node_modules\" \".expo\" \"android\" \"e2e\" \"test-results\" /XF \"package-lock.json\")",
+      "PowerShell(robocopy \"C:\\\\Users\\\\Bo\\\\repos\\\\be-task-assignment\\\\fe\" \"C:\\\\Users\\\\Bo\\\\repos\\\\be-task-assignment\\\\fe-staff\" /E /XD node_modules .expo android e2e test-results /XF package-lock.json | Select-Object -Last 15)",
+      "PowerShell(Copy-Item *)"
     ]
   },
   "enabledMcpjsonServers": [
